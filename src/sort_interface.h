@@ -10,4 +10,7 @@ void bitonicSortEngine(int* arr, int n);
 // This will call the baseline version (std::sort or thrust::sort)
 void baselineSortEngine(int* arr, int n);
 
+// Bubble sort
+void bubbleSortEngine(int* arr, int n);
+
 #endif
