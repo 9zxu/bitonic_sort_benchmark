@@ -1,5 +1,18 @@
-# bitonic sort
+# Bitonic Sort
+> [三十分钟理解：双调排序Bitonic Sort，适合并行计算的排序算法](https://blog.csdn.net/xbinworld/article/details/76408595)
 
+- 排序一個長度為 $2^k$ 的 單調續列：
+	- 對於長度為 $2^k$ 的雙調序列，共做 $k$ 輪操作。
+操作如下：設第 $i$ 輪操作時序列長度為 $2n=2^{k-i}$, $k=\{0, 1, 2, ..., k-1\}$。
+按序比較 $a_i$與$a_{i+n}$ ， 建造兩個陣列$a_{max} = \{\max a_i, a_{i+n} \mid i = 1, 2, ..., n-1\}$，$a_{min} = \{\min a_i, a_{i+n} \mid i = 1, 2, ..., n-1\}$，把$a_{min}$ 置於 $a_{max}$ 前。
+這兩個陣列都滿足雙調，根據Batcher定理。
+做完 $k$ 輪操作後得到一個升序序列。
+- 將任意序列變成單調序列
+	- bitonic merge 從`n=2`開始與鄰居構建單調序列（任意兩個元素一定能構成單調序列
+- 將任意長度轉換成2的冪次方
+	- 一个直观的方法就是使用padding。即使用一个定义的最大或者最小者来填充数组，让数组的大小填充到2的幂长度，再进行排序。最后过滤掉那些最大（最小）值即可。
+	- 缺點：比如 `n=1025`，浪費空間
+## code
 ```cpp
 // 核心：比較與交換
 void compare(int a[], int i, int j, bool dir) {
@@ -177,20 +190,17 @@ make bench_cpu
 make bench_omp
 make bench_gpu
 ```
-check out `.csv` files
+> check out `.csv` files
 
-# result
+# Result
+![alt text](result/bitonic_bench_table.png)
+![alt text](result/perfcmp_random.png)
+![alt text](result/perfcmp_sorted.png)
+![alt text](result/perfcmp_reverse.png)
+![alt text](result/perfcmp_duplicate.png)
 
-[colab plot link](https://colab.research.google.com/drive/1pJ0SkZlVya0l8Te-7gVRn1oT0zH-UVOa?usp=sharing)
-
-- Bitonic sort on single thread cpu is not faster than std::sort
-- Bitonic sort on omp is ? times faster than it is on single thread, 
-- Bitonic sort on GPU is not faster than thrus(optimized parallel sort by nvidia), but faster than std::sort
-- Bitonic sort is also significantly faster than bubble sort.
-
-# hardware information
-### CPU
-
+### hardware information
+- cpu
 ```
 --- Hardware Specifications ---
 --- CPU/Processor Info ---
@@ -201,9 +211,7 @@ Logical Processors (Threads): 12
 --- Memory Info ---
 Total Physical Memory: 15.54 GB
 ```
-
-### GPU
-
+- gpu
 ```
 $ nvidia-smi
 Mon Dec 29 22:24:04 2025       
@@ -232,3 +240,14 @@ Mon Dec 29 22:24:04 2025
 +---------------------------------------------------------------------------------------+
 
 ```
+## analysis
+- Bitonic sort on single thread cpu is not faster than std::sort
+- Bitonic sort on omp is ? times faster than it is on single thread, 
+- Bitonic sort on GPU is not faster than thrus(optimized parallel sort by nvidia), but faster than std::sort
+- Bitonic sort is also significantly faster than bubble sort.
+
+## reference
+
+- [reference article](https://people.cs.rutgers.edu/~venugopa/parallel_summer2012/bitonic_openmp.html)
+- [all source code on GitHub](https://github.com/9zxu/bitonic_sort_benchmark.git)
+- [plot source code on colab](https://colab.research.google.com/drive/1pJ0SkZlVya0l8Te-7gVRn1oT0zH-UVOa?usp=sharing)

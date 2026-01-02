@@ -1,0 +1,28 @@
+\documentclass{article}
+\usepackage{booktabs} % For professional looking tables
+\usepackage{siunitx}  % For alignment of numbers
+
+\begin{document}
+
+\begin{table}[htbp]
+\centering
+\caption{Execution Time (ms) for Random Data Distribution across Different Implementations}
+\label{tab:sorting_performance}
+\begin{tabular}{l r r r r r}
+\toprule
+\textbf{Size} & \multicolumn{1}{c}{\textbf{Bitonic CPU}} & \multicolumn{1}{c}{\textbf{Bitonic OMP}} & \multicolumn{1}{c}{\textbf{Bitonic GPU}} & \multicolumn{1}{c}{\textbf{std::sort}} & \multicolumn{1}{c}{\textbf{thrust::sort}} \\
+\midrule
+$2^{10}$ & 0.146    & 0.377    & 0.159   & 0.049    & 0.103   \\
+$2^{12}$ & 0.480    & 0.338    & 0.122   & 0.150    & 0.108   \\
+$2^{14}$ & 2.389    & 0.815    & 0.152   & 0.760    & 0.140   \\
+$2^{16}$ & 10.910   & 1.643    & 0.438   & 2.981    & 0.265   \\
+$2^{18}$ & 50.655   & 5.950    & 1.002   & 12.975   & 0.498   \\
+$2^{20}$ & 231.578  & 34.265   & 5.237   & 57.142   & 1.476   \\
+$2^{22}$ & 1001.890 & 80.802   & 25.654  & 241.939  & 5.190   \\
+$2^{24}$ & 4339.060 & 489.099  & 115.868 & 972.555  & 19.542  \\
+$2^{26}$ & 18566.100& 2393.980 & 550.244 & 3860.420 & 76.843  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

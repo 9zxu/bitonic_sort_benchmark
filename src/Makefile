@@ -41,5 +41,7 @@ bench_gpu: $(GPU_BIN)
 		for t in 0 1 2 3; do ./$(GPU_BIN) $$n $$t >> result_gpu.csv; done \
 	done
 
+
+
 clean:
 	rm -f $(CPU_BIN) $(OMP_BIN) $(GPU_BIN) *.csv
