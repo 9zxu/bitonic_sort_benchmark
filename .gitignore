@@ -1,3 +1,2 @@
-src/run_cpu
-src/run_omp
-src/run_gpu
+src/run_*
+src/*.csv

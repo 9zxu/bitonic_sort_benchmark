@@ -18,7 +18,7 @@ $(CPU_BIN): benchmark.cpp bitonic_cpu.cpp
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(CUDALIBFLAGS)
 
 $(OMP_BIN): benchmark.cpp bitonic_omp.cpp
-	$(CXX) $(CXXFLAGS) $(OMPFLAGS) $^ -o $@ $(CUDALIBFLAGS)
+	$(CXX) -march=native $(CXXFLAGS) $(OMPFLAGS) $^ -o $@ $(CUDALIBFLAGS)
 
 $(GPU_BIN): benchmark.cpp bitonic_gpu.cu
 	$(NVCC) $(NVCCFLAGS) -x cu $^ -o $@

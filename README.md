@@ -30,12 +30,37 @@ void bitonicSort(int a[], int low, int cnt, bool dir) {
 }
 ```
 ## omp
+### naive
 ```c++
-
+// Bitonic Sort Engine
+void bitonicSortEngine(int* arr, int n) {
+    #pragma omp parallel
+    {
+        for (int k = 2; k <= n; k <<= 1) {
+            for (int j = k >> 1; j > 0; j >>= 1) {
+                #pragma omp for schedule(static)
+                for (int i = 0; i < n; i++) {
+                    int ij = i ^ j;
+                    if (ij > i) {
+                        bool ascending = ((i & k) == 0);
+                        if (ascending) {
+                            if (arr[i] > arr[ij])
+                                std::swap(arr[i], arr[ij]);
+                        } else {
+                            if (arr[i] < arr[ij])
+                                std::swap(arr[i], arr[ij]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 ```
 
 ## cuda
-### naive approach, often bottlenecked by memory latency rather than computation.
+### naive
+> often bottlenecked by memory latency rather than computation.
 ```c++
 // Bitonic and Baseline Sort engines
 __global__ void bitonicSortStep(int* dev_arr, int k, int j) {
@@ -70,7 +95,7 @@ void bitonicSortEngine(int* arr, int n) {
     cudaFree(dev_arr);
 }
 ```
-## Data
+# Data
 
 - [x] **Random Data**：最常見的平均情況。
 - [x] **Sorted Data**：測試演算法是否能處理已排序的情況（Bitonic Sort 依然會執行所有比較）。
@@ -78,7 +103,7 @@ void bitonicSortEngine(int* arr, int n) {
 - [x] **Duplicate Data**：含大量重複數值的資料。
 - [x] **Different Scale** : 測試不同規模的數據
 
-### type
+## type
 
 ```cpp
 enum DataType { RANDOM, SORTED, REVERSE, DUPLICATE };
@@ -95,19 +120,19 @@ void generateData(vector<int>& data, int n, int type) {
 }
 ```
 
-### size
+## size
 ```
 # Powers of 2 from 2^10 to 2^26, r = 4
 SIZES = 1024 4096 16384 65536 262144 1048576 4194304 16777216 67108864
 ```
-### range
+## range
 > 不要只用 `rand()`，因為它的範圍可能只有 32767。建議使用 C++11 的 `<random>` 生成全範圍整數。
 ```c++
         static mt19937 eng(42);
         uniform_int_distribution<int> dist(0, 1000000);
 ```
 
-### average for 10 times
+## average for 10 times
 ```c++
     double bitonic_total = 0.0;
     double baseline_total = 0.0;
@@ -156,13 +181,14 @@ check out `.csv` files
 
 # result
 
+[colab plot link](https://colab.research.google.com/drive/1pJ0SkZlVya0l8Te-7gVRn1oT0zH-UVOa?usp=sharing)
+
 - Bitonic sort on single thread cpu is not faster than std::sort
 - Bitonic sort on omp is ? times faster than it is on single thread, 
 - Bitonic sort on GPU is not faster than thrus(optimized parallel sort by nvidia), but faster than std::sort
 - Bitonic sort is also significantly faster than bubble sort.
 
-## hardware information
-
+# hardware information
 ### CPU
 
 ```

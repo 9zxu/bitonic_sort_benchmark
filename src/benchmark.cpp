@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
 
         // Bubble sort (only for small n)
         double bubble_time = 0.0;
-        if (n <= 32768) {
+        if (n <= 65536) {
             auto s3 = high_resolution_clock::now();
             bubbleSortEngine(data_bubble.data(), n);
             auto e3 = high_resolution_clock::now();
