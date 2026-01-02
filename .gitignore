@@ -1,0 +1,3 @@
+src/run_cpu
+src/run_omp
+src/run_gpu

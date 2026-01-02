@@ -3,40 +3,107 @@
 #include <thrust/device_ptr.h>
 #include <iostream>
 #include "sort_interface.h"
+#define checkCudaErrors(call)                                 \
+    do {                                                      \
+        cudaError_t err = call;                               \
+        if (err != cudaSuccess) {                             \
+            printf("CUDA error at %s:%d: %s\n", __FILE__,     \
+                   __LINE__, cudaGetErrorString(err));        \
+            exit(EXIT_FAILURE);                               \
+        }                                                     \
+    } while (0)
 
-// Bitonic and Baseline Sort engines
-__global__ void bitonicSortStep(int* dev_arr, int k, int j) {
-    unsigned int i = threadIdx.x + blockDim.x * blockIdx.x;
-    unsigned int ij = i ^ j; 
+#define THREADS 1024 // Max threads per block for RTX 3050
+
+//////////////////////////////////////////////////////////////////////
+
+// 1. Kernel for small strides (Shared Memory)
+// Handles j = 512 down to 1 entirely in fast memory
+__global__ void bitonicSortShared(int* arr, int k) {
+    __shared__ int shared_arr[THREADS];
+    
+    unsigned int tid = threadIdx.x;
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Load into shared memory
+    shared_arr[tid] = arr[i];
+    __syncthreads();
+
+    // Internal bitonic merge
+    // FIX: Cap the starting stride 'j' to fit within shared memory capabilities
+    // If k=2048 and blockDim=512, we must start j at 256, not 1024.
+    unsigned int max_shared_j = blockDim.x >> 1;
+    unsigned int initial_j = k >> 1;
+    
+    if (initial_j > max_shared_j) {
+        initial_j = max_shared_j;
+    }
+
+    for (int j = initial_j; j > 0; j >>= 1) {
+        unsigned int ij = tid ^ j;
+        
+        // Only one thread in the pair performs the swap logic
+        if (ij > tid) {
+            bool ascending = ((i & k) == 0); // 'i' is global index, so 'k' check is correct
+            int a = shared_arr[tid];
+            int b = shared_arr[ij];
+
+            if ((ascending && a > b) || (!ascending && a < b)) {
+                shared_arr[tid] = b;
+                shared_arr[ij] = a;
+            }
+        }
+        __syncthreads();
+    }
+
+    // Write back to global memory
+    arr[i] = shared_arr[tid];
+}
+
+// 2. Kernel for large strides (Global Memory)
+__global__ void bitonicSortGlobal(int* arr, int k, int j) {
+    unsigned int i = threadIdx.x + blockIdx.x * blockDim.x;
+    unsigned int ij = i ^ j;
+
     if (ij > i) {
         bool ascending = ((i & k) == 0);
-        int a = dev_arr[i];
-        int b = dev_arr[ij];
-        if (ascending) {
-            if (a > b) { dev_arr[i] = b; dev_arr[ij] = a; }
-        } else {
-            if (a < b) { dev_arr[i] = b; dev_arr[ij] = a; }
+        int a = arr[i];
+        int b = arr[ij];
+
+        if ((ascending && a > b) || (!ascending && a < b)) {
+            arr[i] = b;
+            arr[ij] = a;
         }
     }
 }
 
-void bitonicSortEngine(int* arr, int n) {
-    int *dev_arr;
-    cudaMalloc(&dev_arr, n * sizeof(int));
-    cudaMemcpy(dev_arr, arr, n * sizeof(int), cudaMemcpyHostToDevice);
+void bitonicSortEngine(int* h_arr, int n) {
+    int *d_arr;
+    size_t size = n * sizeof(int);
+    cudaMalloc(&d_arr, size);
+    cudaMemcpy(d_arr, h_arr, size, cudaMemcpyHostToDevice);
 
-    int threadsPerBlock = 512;
-    int blocksPerGrid = (n + threadsPerBlock - 1) / threadsPerBlock;
+    dim3 blocks(n / THREADS);
+    dim3 threads(THREADS);
 
     for (int k = 2; k <= n; k <<= 1) {
         for (int j = k >> 1; j > 0; j >>= 1) {
-            bitonicSortStep<<<blocksPerGrid, threadsPerBlock>>>(dev_arr, k, j);
+            if (j >= THREADS) {
+                // If stride is larger than block, must use Global Memory
+                bitonicSortGlobal<<<blocks, threads>>>(d_arr, k, j);
+            } else {
+                // If stride fits in block, do ALL remaining j-steps in Shared Memory
+                bitonicSortShared<<<blocks, threads>>>(d_arr, k);
+                break; // The shared kernel handled all j = stride...1
+            }
         }
     }
     cudaDeviceSynchronize();
-    cudaMemcpy(arr, dev_arr, n * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaFree(dev_arr);
+    cudaMemcpy(h_arr, d_arr, size, cudaMemcpyDeviceToHost);
+    cudaFree(d_arr);
 }
+
+//////////////////////////////// bubble sort ////////////////////////////////////////////////
 
 // CUDA Kernel for Odd-Even Sort step
 __global__ void oddEvenStep(int* dev_arr, int n, int phase) {
@@ -86,6 +153,8 @@ void bubbleSortEngine(int* arr, int n) {
     cudaFree(dev_arr);
 }
 
+///////////////////////////////////// thrust sort ///////////////////////////////////////
+
 void baselineSortEngine(int* arr, int n) {
     int *dev_arr;
     cudaMalloc(&dev_arr, n * sizeof(int));
@@ -94,6 +163,7 @@ void baselineSortEngine(int* arr, int n) {
     thrust::device_ptr<int> dev_ptr(dev_arr);
     thrust::sort(dev_ptr, dev_ptr + n);
     
+    cudaDeviceSynchronize();
     cudaMemcpy(arr, dev_arr, n * sizeof(int), cudaMemcpyDeviceToHost);
     cudaFree(dev_arr);
 }
