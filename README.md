@@ -168,13 +168,32 @@ done
 
 ## usage
 
-```make
-make # compile all
-make bench_cpu
-make bench_omp
-make bench_gpu
+### compile and run benchmark
+
+```sh
+$ cd src
+$ make # compile all
+$ make bench_cpu
+$ make bench_omp
+$ make bench_gpu
 ```
-> check out `.csv` files
+> check out `.csv` files under the same folder
+
+### data analysis & visualization tool
+
+```sh
+$ python3 -m venv .venv
+$ source .venv/bin/activate
+(.venv) $ pip install -r requirements.txt
+(.venv) $ python plot.py
+```
+> check out `.png` files under the same folder
+
+> compile `speedup_table_random.tex` to view the table
+
+```sh
+(.venv) $ deactivate
+```
 
 # Result & analysis
 
