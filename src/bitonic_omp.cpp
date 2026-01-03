@@ -65,36 +65,54 @@ void bitonicSortEngine(int* arr, int n) {
     }
 }
 
+
 void baselineSortEngine(int* arr, int n) {
-    std::sort(arr, arr + n);
-}
+    const int GRAIN_SIZE = 4048; // Fits in L1/L2 cache
 
-void bubbleSortEngine(int* arr, int n) {
-    // Standard Bubble Sort is inherently sequential.
-    // We use Odd-Even Transposition Sort for parallelization.
-    
-    for (int i = 0; i < n; i++) {
-        bool swapped = false;
-
-        // Phase 1: Even-indexed pairs (0,1), (2,3), (4,5)...
-        #pragma omp parallel for reduction(|:swapped)
-        for (int j = 0; j < n - 1; j += 2) {
-            if (arr[j] > arr[j + 1]) {
-                std::swap(arr[j], arr[j + 1]);
-                swapped = true;
+    // p is the size of the sorted blocks being merged
+    for (int p = 1; p < n; p <<= 1) {
+        // k is the stride/distance between elements being compared
+        for (int k = p; k >= 1; k >>= 1) {
+            
+            if (k >= GRAIN_SIZE) {
+                #pragma omp parallel for schedule(static)
+                for (int j = k % p; j < n - k; j += 2 * k) {
+                    // This inner loop ensures we only compare elements 
+                    // that belong to the same merge-group (of size 2*p)
+                    for (int i = 0; i < k; ++i) {
+                        int idx1 = j + i;
+                        int idx2 = j + i + k;
+                        if (idx1 / (p * 2) == idx2 / (p * 2)) {
+                            if (arr[idx1] > arr[idx2]) {
+                                std::swap(arr[idx1], arr[idx2]);
+                            }
+                        }
+                    }
+                }
+            } 
+            else {
+                // CACHE-FRIENDLY KERNEL
+                // When k is small, we process blocks of data in parallel
+                #pragma omp parallel for schedule(static)
+                for (int block_start = 0; block_start < n; block_start += (GRAIN_SIZE * 2)) {
+                    // Each thread takes a chunk of the array and finishes 
+                    // ALL remaining k-steps (k, k/2, k/4... 1) for the current p-stage.
+                    for (int local_k = k; local_k >= 1; local_k >>= 1) {
+                        for (int j = block_start + (local_k % p); j < block_start + (GRAIN_SIZE * 2) - local_k; j += 2 * local_k) {
+                            // Ensure we don't go out of array bounds
+                            if (j >= n) break; 
+                            for (int i = 0; i < local_k; ++i) {
+                                int idx1 = j + i;
+                                int idx2 = j + i + local_k;
+                                if (idx2 < n && (idx1 / (p * 2) == idx2 / (p * 2))) {
+                                    if (arr[idx1] > arr[idx2]) std::swap(arr[idx1], arr[idx2]);
+                                }
+                            }
+                        }
+                    }
+                }
+                break; // Current p-stage finished by the kernel
             }
         }
-
-        // Phase 2: Odd-indexed pairs (1,2), (3,4), (5,6)...
-        #pragma omp parallel for reduction(|:swapped)
-        for (int j = 1; j < n - 1; j += 2) {
-            if (arr[j] > arr[j + 1]) {
-                std::swap(arr[j], arr[j + 1]);
-                swapped = true;
-            }
-        }
-
-        // If no swaps occurred in either phase, the array is sorted
-        if (!swapped) break;
     }
 }

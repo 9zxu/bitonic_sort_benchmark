@@ -1,0 +1,37 @@
+\documentclass{article}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage[margin=1in]{geometry}
+
+\begin{document}
+
+\begin{table}[htbp]
+\centering
+\caption{Speedup Factor Comparison ($std::sort / Bitonic$) for Random Data}
+\label{tab:speedup_random}
+\begin{tabular}{l S[table-format=1.3] S[table-format=1.3] S[table-format=2.3]}
+\toprule
+\textbf{Size} & \textbf{Speedup CPU} & \textbf{Speedup OMP} & \textbf{Speedup GPU} \\
+\midrule
+$2^{10}$ & 0.397 & 1.138 & 0.764 \\
+$2^{11}$ & 0.314 & 0.946 & 1.288 \\
+$2^{12}$ & 0.290 & 0.525 & 1.323 \\
+$2^{13}$ & 0.323 & 0.563 & 3.055 \\
+$2^{14}$ & 0.283 & 0.845 & 4.585 \\
+$2^{15}$ & 0.285 & 1.540 & 7.104 \\
+$2^{16}$ & 0.271 & 1.983 & 8.421 \\
+$2^{17}$ & 0.261 & 2.395 & 9.749 \\
+$2^{18}$ & 0.259 & 2.737 & 13.000 \\
+$2^{19}$ & 0.248 & 3.087 & 11.205 \\
+$2^{20}$ & 0.249 & 3.062 & 11.547 \\
+$2^{21}$ & 0.245 & 3.143 & 11.354 \\
+$2^{22}$ & 0.238 & 3.211 & 10.615 \\
+$2^{23}$ & 0.235 & 2.511 & 9.853 \\
+$2^{24}$ & 0.221 & 1.741 & 8.920 \\
+$2^{25}$ & 0.217 & 1.810 & 8.085 \\
+$2^{26}$ & 0.208 & 1.632 & 7.504 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

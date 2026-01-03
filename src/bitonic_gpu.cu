@@ -1,6 +1,5 @@
 #include <cuda_runtime.h>
-#include <thrust/sort.h>
-#include <thrust/device_ptr.h>
+#include <device_launch_parameters.h>
 #include <iostream>
 #include "sort_interface.h"
 #define checkCudaErrors(call)                                 \
@@ -15,7 +14,6 @@
 
 #define THREADS 1024 // Max threads per block for RTX 3050
 
-//////////////////////////////////////////////////////////////////////
 
 // 1. Kernel for small strides (Shared Memory)
 // Handles j = 512 down to 1 entirely in fast memory
@@ -77,6 +75,60 @@ __global__ void bitonicSortGlobal(int* arr, int k, int j) {
     }
 }
 
+// double g_kernel_time_ms = 0.0;
+
+void bitonicSortEngine(int* h_arr, int n) {
+    int *d_arr;
+    size_t size = n * sizeof(int);
+    cudaMalloc(&d_arr, size);
+    
+    // 1. Data Transfer (Not part of kernel time)
+    cudaMemcpy(d_arr, h_arr, size, cudaMemcpyHostToDevice);
+
+    dim3 blocks(n / THREADS);
+    dim3 threads(THREADS);
+
+    // 2. Setup Events
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+
+    // Start recording
+    cudaEventRecord(start);
+
+    for (int k = 2; k <= n; k <<= 1) {
+        for (int j = k >> 1; j > 0; j >>= 1) {
+            // ... your kernel launch logic ...
+            // bitonicSortGlobal<<<blocks, threads>>>(d_arr, k, j);
+            if (j >= THREADS) {
+                // If stride is larger than block, must use Global Memory
+                bitonicSortGlobal<<<blocks, threads>>>(d_arr, k, j);
+            } else {
+                // If stride fits in block, do ALL remaining j-steps in Shared Memory
+                bitonicSortShared<<<blocks, threads>>>(d_arr, k);
+                break; // The shared kernel handled all j = stride...1
+            }
+        }
+    }
+
+    // Stop recording
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    g_kernel_time_ms = (double)milliseconds; // Store in global for benchmark.cpp
+
+    // 3. Data Transfer Back (Not part of kernel time)
+    cudaMemcpy(h_arr, d_arr, size, cudaMemcpyDeviceToHost);
+
+    cudaFree(d_arr);
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+}
+
+
+/* not calculating kernel time
 void bitonicSortEngine(int* h_arr, int n) {
     int *d_arr;
     size_t size = n * sizeof(int);
@@ -102,68 +154,100 @@ void bitonicSortEngine(int* h_arr, int n) {
     cudaMemcpy(h_arr, d_arr, size, cudaMemcpyDeviceToHost);
     cudaFree(d_arr);
 }
+*/
 
-//////////////////////////////// bubble sort ////////////////////////////////////////////////
 
-// CUDA Kernel for Odd-Even Sort step
-__global__ void oddEvenStep(int* dev_arr, int n, int phase) {
-    // Each thread handles one comparison and potential swap
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+// 1. Global Kernel for large strides
+__global__ void oddEvenMergeGlobal(int* arr, int n, int p, int k) {
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
     
-    // Calculate the index to compare based on the phase (0 for even, 1 for odd)
-    int idx = 2 * i + phase;
+    // In Batcher's, not every index is a 'start' index. 
+    // We map thread 'i' to the logic j + i from the CPU version.
+    // Each thread handles one comparison.
+    unsigned int group_size = 2 * k;
+    unsigned int chunk_id = i / k;
+    unsigned int inner_idx = i % k;
+    unsigned int start_idx = (chunk_id * group_size) + (k % p) + inner_idx;
 
-    if (idx < n - 1) {
-        if (dev_arr[idx] > dev_arr[idx + 1]) {
-            int temp = dev_arr[idx];
-            dev_arr[idx] = dev_arr[idx + 1];
-            dev_arr[idx + 1] = temp;
+    unsigned int idx1 = start_idx;
+    unsigned int idx2 = start_idx + k;
+
+    if (idx2 < n && (idx1 / (2 * p) == idx2 / (2 * p))) {
+        int a = arr[idx1];
+        int b = arr[idx2];
+        if (a > b) {
+            arr[idx1] = b;
+            arr[idx2] = a;
         }
     }
 }
 
-// Parallel CUDA version of Bubble Sort (Odd-Even Sort)
-void bubbleSortEngine(int* arr, int n) {
-    int *dev_arr;
-    size_t size = n * sizeof(int);
+// 2. Shared Memory Kernel for small strides
+__global__ void oddEvenMergeShared(int* arr, int n, int p, int k_start) {
+    __shared__ int s_arr[THREADS * 2];
+    
+    unsigned int tid = threadIdx.x;
+    unsigned int block_offset = blockIdx.x * (THREADS * 2);
 
-    // Allocate and copy memory to device
-    cudaMalloc(&dev_arr, size);
-    cudaMemcpy(dev_arr, arr, size, cudaMemcpyHostToDevice);
+    // Load two elements per thread into shared memory
+    if (block_offset + tid < n) s_arr[tid] = arr[block_offset + tid];
+    if (block_offset + tid + THREADS < n) s_arr[tid + THREADS] = arr[block_offset + tid + THREADS];
+    __syncthreads();
 
-    // Configuration: 
-    // Since each thread handles a pair (2 elements), we need n/2 threads
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (n / 2 + threadsPerBlock - 1) / threadsPerBlock;
-
-    // The algorithm requires n passes to guarantee sorting in the worst case
-    for (int i = 0; i < n; i++) {
-        // Phase 0: Even indices (0,1), (2,3)...
-        // Phase 1: Odd indices (1,2), (3,4)...
-        oddEvenStep<<<blocksPerGrid, threadsPerBlock>>>(dev_arr, n, i % 2);
+    // Process all remaining strides (k_start, k_start/2, ... 1)
+    for (int k = k_start; k >= 1; k >>= 1) {
+        // Logic similar to global but relative to shared memory
+        unsigned int group_size = 2 * k;
         
-        // Ensure the current phase is finished before starting the next
-        // (Kernel launches on the same stream are serialized automatically)
+        // Each thread handles one comparison in the shared block
+        // Since we have THREADS*2 elements, we have THREADS comparisons
+        unsigned int chunk_id = tid / k;
+        unsigned int inner_idx = tid % k;
+        unsigned int s_idx1 = (chunk_id * group_size) + (k % p) + inner_idx;
+        unsigned int s_idx2 = s_idx1 + k;
+
+        unsigned int g_idx1 = block_offset + s_idx1;
+        unsigned int g_idx2 = block_offset + s_idx2;
+
+        if (s_idx2 < (THREADS * 2) && g_idx2 < n) {
+            if ((g_idx1 / (2 * p)) == (g_idx2 / (2 * p))) {
+                if (s_arr[s_idx1] > s_arr[s_idx2]) {
+                    int tmp = s_arr[s_idx1];
+                    s_arr[s_idx1] = s_arr[s_idx2];
+                    s_arr[s_idx2] = tmp;
+                }
+            }
+        }
+        __syncthreads();
     }
 
-    cudaDeviceSynchronize();
-
-    // Copy result back to host
-    cudaMemcpy(arr, dev_arr, size, cudaMemcpyDeviceToHost);
-    cudaFree(dev_arr);
+    // Write back
+    if (block_offset + tid < n) arr[block_offset + tid] = s_arr[tid];
+    if (block_offset + tid + THREADS < n) arr[block_offset + tid + THREADS] = s_arr[tid + THREADS];
 }
 
-///////////////////////////////////// thrust sort ///////////////////////////////////////
+void baselineSortEngine(int* h_arr, int n) {
+    int *d_arr;
+    cudaMalloc(&d_arr, n * sizeof(int));
+    cudaMemcpy(d_arr, h_arr, n * sizeof(int), cudaMemcpyHostToDevice);
 
-void baselineSortEngine(int* arr, int n) {
-    int *dev_arr;
-    cudaMalloc(&dev_arr, n * sizeof(int));
-    cudaMemcpy(dev_arr, arr, n * sizeof(int), cudaMemcpyHostToDevice);
-    
-    thrust::device_ptr<int> dev_ptr(dev_arr);
-    thrust::sort(dev_ptr, dev_ptr + n);
-    
-    cudaDeviceSynchronize();
-    cudaMemcpy(arr, dev_arr, n * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaFree(dev_arr);
+    for (int p = 1; p < n; p <<= 1) {
+        for (int k = p; k >= 1; k >>= 1) {
+            if (k >= THREADS) {
+                // Stride is too large for shared memory, use 1 thread per comparison
+                int num_comparisons = n / 2; 
+                int blocks = (num_comparisons + THREADS - 1) / THREADS;
+                oddEvenMergeGlobal<<<blocks, THREADS>>>(d_arr, n, p, k);
+            } else {
+                // Stride fits in shared memory. 
+                // Each block handles 2*THREADS elements.
+                int blocks = (n + (THREADS * 2) - 1) / (THREADS * 2);
+                oddEvenMergeShared<<<blocks, THREADS>>>(d_arr, n, p, k);
+                break; // Shared kernel finishes all smaller k for this p
+            }
+        }
+    }
+
+    cudaMemcpy(h_arr, d_arr, n * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaFree(d_arr);
 }

@@ -1,5 +1,0 @@
---- Hardware Specifications ---
---- CPU/Processor Info ---
-
---- Memory Info ---
-

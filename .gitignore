@@ -1,2 +1,4 @@
 src/run_*
 src/*.csv
+result/.venv
+result/__pycache__

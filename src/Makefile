@@ -9,8 +9,8 @@ CPU_BIN = run_cpu
 OMP_BIN = run_omp
 GPU_BIN = run_gpu
 
-# Powers of 2 from 2^10 to 2^26, r = 4
-SIZES = 1024 4096 16384 65536 262144 1048576 4194304 16777216 67108864
+COLUMNS = "Size,Type,Bitonic_ms,g_kernel_time_ms,elements_per_sec,throughput_cycles,Baseline_ms"
+TYPE = 0 1 2 3
 
 all: $(CPU_BIN) $(OMP_BIN) $(GPU_BIN)
 
@@ -23,25 +23,27 @@ $(OMP_BIN): benchmark.cpp bitonic_omp.cpp
 $(GPU_BIN): benchmark.cpp bitonic_gpu.cu
 	$(NVCC) $(NVCCFLAGS) -x cu $^ -o $@
 
+
 bench_cpu: $(CPU_BIN)
-	@echo "Size,Type,Bitonic_ms,StdSort_ms,Bubble_ms" > result_cpu.csv
-	@for n in $(SIZES); do \
-		for t in 0 1 2 3; do ./$(CPU_BIN) $$n $$t >> result_cpu.csv; done \
+	@echo $(COLUMNS) > result_cpu.csv
+	@for e in $$(seq 10 26); do \
+		n=$$((1<<e)); \
+		for t in $(TYPE); do ./$(CPU_BIN) $$n $$t >> result_cpu.csv; done; \
 	done
 
 bench_omp: $(OMP_BIN)
-	@echo "Size,Type,Bitonic_ms,StdSort_ms,BubbleOMP_ms" > result_omp.csv
-	@for n in $(SIZES); do \
-		for t in 0 1 2 3; do ./$(OMP_BIN) $$n $$t >> result_omp.csv; done \
+	@echo $(COLUMNS) > result_omp.csv
+	@for e in $$(seq 10 26); do \
+		n=$$((1<<e)); \
+		for t in $(TYPE); do ./$(OMP_BIN) $$n $$t >> result_omp.csv; done; \
 	done
 
 bench_gpu: $(GPU_BIN)
-	@echo "Size,Type,Bitonic_ms,ThrustSort_ms,BubbleCUDA_ms" > result_gpu.csv
-	@for n in $(SIZES); do \
-		for t in 0 1 2 3; do ./$(GPU_BIN) $$n $$t >> result_gpu.csv; done \
+	@echo $(COLUMNS) > result_gpu.csv
+	@for e in $$(seq 10 26); do \
+		n=$$((1<<e)); \
+		for t in $(TYPE); do ./$(GPU_BIN) $$n $$t >> result_gpu.csv; done; \
 	done
-
-
 
 clean:
 	rm -f $(CPU_BIN) $(OMP_BIN) $(GPU_BIN) *.csv

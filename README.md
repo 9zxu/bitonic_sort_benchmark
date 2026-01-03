@@ -134,9 +134,12 @@ void generateData(vector<int>& data, int n, int type) {
 ```
 
 ## size
-```
-# Powers of 2 from 2^10 to 2^26, r = 4
-SIZES = 1024 4096 16384 65536 262144 1048576 4194304 16777216 67108864
+```sh
+# Powers of 2 from 2^10 to 2^26
+@for e in $$(seq 10 26); do \
+    n=$$((1<<e)); \
+    for t in $(TYPE); do ./$(GPU_BIN) $$n $$t >> result_gpu.csv; done; \
+done
 ```
 ## range
 > 不要只用 `rand()`，因為它的範圍可能只有 32767。建議使用 C++11 的 `<random>` 生成全範圍整數。
@@ -147,39 +150,20 @@ SIZES = 1024 4096 16384 65536 262144 1048576 4194304 16777216 67108864
 
 ## average for 10 times
 ```c++
-    double bitonic_total = 0.0;
-    double baseline_total = 0.0;
-    double bubble_total = 0.0;
-
+    constexpr int REPEAT = 10;
+    int total_runs = REPEAT + 1;
     for (int i = 0; i < total_runs; ++i) {
-        copy(data_original.begin(), data_original.end(), data_bitonic.begin());
-        copy(data_original.begin(), data_original.end(), data_baseline.begin());
-        copy(data_original.begin(), data_original.end(), data_bubble.begin());
 
-        // Bitonic sort
-        // ...
-
-        // std::sort
-        // ...
-
-        // Bubble sort (only for small n)
-        double bubble_time = 0.0;
-        if (n <= 32768) {
-            // ...
-        }
+        // ,,,
 
         // discard warm-up
         if (i > 0) {
             bitonic_total += duration<double, milli>(e1 - s1).count();
             baseline_total += duration<double, milli>(e2 - s2).count();
-            if (n <= 32768)
-                bubble_total += bubble_time;
         }
     }
-
     double bitonic_avg = bitonic_total / REPEAT;
     double baseline_avg = baseline_total / REPEAT;
-    double bubble_avg = (n <= 32768) ? (bubble_total / REPEAT) : -1.0;
 ```
 
 ## usage
@@ -192,15 +176,92 @@ make bench_gpu
 ```
 > check out `.csv` files
 
-# Result
-![alt text](result/bitonic_bench_table.png)
-![alt text](result/perfcmp_random.png)
-![alt text](result/perfcmp_sorted.png)
-![alt text](result/perfcmp_reverse.png)
-![alt text](result/perfcmp_duplicate.png)
+# Result & analysis
+
+![alt text](result_v1.0.0/bitonic_bench_table.png)
+![alt text](result_v1.0.0/perfcmp_random.png)
+![alt text](result_v1.0.0/perfcmp_sorted.png)
+![alt text](result_v1.0.0/perfcmp_reverse.png)
+![alt text](result_v1.0.0/perfcmp_duplicate.png)
+
+
+- bitonic_cpu is slower than std::sort (we can see it in time complexity)
+- Bitonic sort is also significantly faster than bubble sort.
+- the trands are similar over different data distribution
+- Bitonic sort on GPU is not faster than thrus(optimized parallel sort by nvidia), but faster than std::sort
+
+![alt text](result/bitonic_speedup_table.png)
+![alt text](result/speedup_plot_random.png)
+
+- speed up factor of gpu has a peak at $2^{18}$
+- speed up factor of omp has a better range
+
+![alt text](result/execution_time_random.png)
+
+- batcher's sort is close to bitonic sort (they have the same time complexity)
+
+![alt text](result/elements_per_sec_random.png)
+![alt text](result/throughput_cycles_random.png)
+
+- throughput also has a peak at $2^{18}$, corresponding to speed up factor
+
+![alt text](result/gpu_overhead_random.png)
+
+- `gpu_overhead_ms gpu_overhead_ms = Bitonic_ms - g_kernel_time_ms`
+- rise quickly after $2^{22}$ due to memory handle ?
+
+```cpp
+#define THREADS 1024 // Max threads per block for RTX 3050
+
+void bitonicSortEngine(int* h_arr, int n) {
+
+    // ...
+
+    for (int k = 2; k <= n; k <<= 1) {
+        for (int j = k >> 1; j > 0; j >>= 1) {
+            // ... your kernel launch logic ...
+            // bitonicSortGlobal<<<blocks, threads>>>(d_arr, k, j);
+            if (j >= THREADS) {
+                // If stride is larger than block, must use Global Memory
+                bitonicSortGlobal<<<blocks, threads>>>(d_arr, k, j);
+            } else {
+                // If stride fits in block, do ALL remaining j-steps in Shared Memory
+                bitonicSortShared<<<blocks, threads>>>(d_arr, k);
+                break; // The shared kernel handled all j = stride...1
+            }
+        }
+    }
+
+    // ...
+
+}
+```
 
 ### hardware information
-- cpu
+- cpu rate
+```
+$ lscpu | grep "MHz"
+CPU(s) scaling MHz:                      12%
+CPU max MHz:                             5600.0000
+CPU min MHz:                             800.0000
+```
+- speed for each core
+```
+$ cat /proc/cpuinfo | grep "MHz"
+cpu MHz         : 1352.870
+cpu MHz         : 1266.048
+cpu MHz         : 1892.623
+cpu MHz         : 600.335
+cpu MHz         : 600.075
+cpu MHz         : 4008.981
+cpu MHz         : 3942.667
+cpu MHz         : 647.996
+cpu MHz         : 3880.856
+cpu MHz         : 800.000
+cpu MHz         : 3798.795
+cpu MHz         : 2625.425
+```
+- cpu info
 ```
 --- Hardware Specifications ---
 --- CPU/Processor Info ---
@@ -227,27 +288,8 @@ Mon Dec 29 22:24:04 2025
 |                                         |                      |                  N/A |
 +-----------------------------------------+----------------------+----------------------+
                                                                                          
-+---------------------------------------------------------------------------------------+
-| Processes:                                                                            |
-|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
-|        ID   ID                                                             Usage      |
-|=======================================================================================|
-|    0   N/A  N/A      3074      G   /usr/lib/xorg/Xorg                          248MiB |
-|    0   N/A  N/A      3313      G   /usr/bin/gnome-shell                        108MiB |
-|    0   N/A  N/A      4108      G   /proc/self/exe                               50MiB |
-|    0   N/A  N/A      4396      G   ...onService --variations-seed-version      110MiB |
-|    0   N/A  N/A      4780      G   ...cess-track-uuid=3190708988185955192      132MiB |
-+---------------------------------------------------------------------------------------+
-
 ```
-## analysis
-- Bitonic sort on single thread cpu is not faster than std::sort
-- Bitonic sort on omp is ? times faster than it is on single thread, 
-- Bitonic sort on GPU is not faster than thrus(optimized parallel sort by nvidia), but faster than std::sort
-- Bitonic sort is also significantly faster than bubble sort.
 
 ## reference
 
 - [reference article](https://people.cs.rutgers.edu/~venugopa/parallel_summer2012/bitonic_openmp.html)
-- [all source code on GitHub](https://github.com/9zxu/bitonic_sort_benchmark.git)
-- [plot source code on colab](https://colab.research.google.com/drive/1pJ0SkZlVya0l8Te-7gVRn1oT0zH-UVOa?usp=sharing)
